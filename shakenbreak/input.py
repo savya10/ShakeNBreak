@@ -76,9 +76,9 @@ def _bold_print(string: str) -> None:
 def _create_folder(folder_name: str) -> None:
     """Creates a folder at `./folder_name` if it doesn't already exist."""
     path = os.getcwd()
-    if not os.path.isdir(f"{path}/{folder_name}"):
+    if not os.path.isdir(path + "/" + folder_name):
         try:
-            os.makedirs(f"{path}/{folder_name}", exist_ok=True)
+            os.makedirs(path + "/" + folder_name, exist_ok=True)
         except OSError:
             print(f"Creation of the directory {path} failed")
 
@@ -89,14 +89,8 @@ def _write_distortion_metadata(
     output_path: str = ".",
 ) -> None:
     """
-    Write distortion metadata to file.
-
-    If the file already exists then the previous metadata will be
-    renamed to ``distortion_metadata_<datetime>.json`` (if it differs
-    from the current metadata), and also combined with the current
-    metadata if compatible (i.e. if they are using similar distortion
-    parameters and only differ in the set of defects / charge states /
-    distortions used), before writing this combined metadata to file.
+    Write metadata to file. If the file already exists, it will be
+    renamed to distortion_metadata_<datetime>.json and updated with new metadata.
 
     Args:
         new_metadata (:obj:`dict`):
@@ -113,205 +107,70 @@ def _write_distortion_metadata(
     """
     filepath = os.path.join(output_path, filename)
     if os.path.exists(filepath):
+        current_datetime = datetime.datetime.now().strftime(
+            "%Y-%m-%d-%H-%M"
+        )  # keep copy of old metadata file
+        os.rename(
+            filepath,
+            os.path.join(output_path, f"distortion_metadata_{current_datetime}.json"),
+        )
+        print(
+            f"There is a previous version of {filename}. Will rename old "
+            f"metadata to distortion_metadata_{current_datetime}.json"
+        )
         try:
-            old_metadata = loadfn(os.path.join(output_path, "distortion_metadata.json"))
-            if (
-                old_metadata
-            ):  # convert charge keys back to integers (converted to strings when saved to /
-                # loaded from JSON)
-                for defect in list(old_metadata["defects"].keys()):
-                    charges_dict = old_metadata["defects"][defect]["charges"]
-                    old_metadata["defects"][defect] = {
-                        k: v
-                        for k, v in old_metadata["defects"][defect].items()
-                        if k != "charges"
-                    }
-                    old_metadata["defects"][defect]["charges"] = {
-                        int(k): v for k, v in charges_dict.items()
-                    }
-
-            if old_metadata and old_metadata != new_metadata:
-                current_datetime = datetime.datetime.now().strftime(
-                    "%Y-%m-%d-%H-%M"
-                )  # current time for renaming old metadata file
-
-                # if new/old metadata are subsets of one another, then combine quietly and don't write
-                # new file:
-                are_subsets = new_metadata["distortion_parameters"] == old_metadata[
-                    "distortion_parameters"
-                ] and (
-                    all(
-                        {
-                            k: v
-                            for k, v in new_metadata["defects"]
-                            .get(defect, {"charges": {None: None}})["charges"]
-                            .get(charge, {None: None})
-                            .items()
-                            if k != "distortion_parameters"
-                        }
-                        == {
-                            k: v
-                            for k, v in old_metadata["defects"]
-                            .get(defect, {"charges": {None: None}})["charges"]
-                            .get(charge, {None: None})
-                            .items()
-                            if k != "distortion_parameters"
-                        }
-                        for defect in new_metadata["defects"]
-                        for charge in new_metadata["defects"][defect]["charges"]
-                    )
-                    or all(
-                        {
-                            k: v
-                            for k, v in new_metadata["defects"]
-                            .get(defect, {"charges": {None: None}})["charges"]
-                            .get(charge, {None: None})
-                            .items()
-                            if k != "distortion_parameters"
-                        }
-                        == {
-                            k: v
-                            for k, v in old_metadata["defects"]
-                            .get(defect, {"charges": {None: None}})["charges"]
-                            .get(charge, {None: None})
-                            .items()
-                            if k != "distortion_parameters"
-                        }
-                        for defect in old_metadata["defects"]
-                        for charge in old_metadata["defects"][defect]["charges"]
-                    )
-                )
-
-                if not are_subsets:
-                    print(
-                        f"There is a previous version of {filepath} with differences to the current "
-                        f"`distortion_metadata`. Will rename old metadata file to "
-                        f"distortion_metadata_{current_datetime}.json"
-                    )
-                    os.rename(
-                        filepath,
-                        os.path.join(
-                            output_path, f"distortion_metadata_{current_datetime}.json"
-                        ),
-                    )
-                    print(f"Combining old and new metadata in {filename}.")
-
-                # Combine old and new metadata dictionaries
-                for defect in old_metadata["defects"]:
-                    if (
-                        defect in new_metadata["defects"]
-                    ):  # if defect in both metadata files
-                        for charge in old_metadata["defects"][defect]["charges"]:
-                            if (
-                                charge in new_metadata["defects"][defect]["charges"]
-                            ):  # if charge state in both files,
-                                # then we update the mesh of distortions if this is the only differing
-                                # quantity (i.e. [-0.3, 0.3] + [-0.4, -0.2, 0.2, 0.4])
-                                new_metadata_charge_dict_wout_distortions_list = (
-                                    copy.deepcopy(
-                                        new_metadata["defects"][defect]["charges"][
-                                            charge
-                                        ]
-                                    )
-                                )
-                                new_metadata_charge_dict_wout_distortions_list[
-                                    "distortion_parameters"
-                                ] = {
-                                    k: v
-                                    for k, v in new_metadata_charge_dict_wout_distortions_list[
-                                        "distortion_parameters"
-                                    ].items()
-                                    if k
-                                    not in ["bond_distortions", "distortion_increment"]
-                                }
-                                old_metadata_charge_dict_wout_distortions_list = (
-                                    copy.deepcopy(
-                                        old_metadata["defects"][defect]["charges"][
-                                            charge
-                                        ]
-                                    )
-                                )
-                                old_metadata_charge_dict_wout_distortions_list[
-                                    "distortion_parameters"
-                                ] = {
-                                    k: v
-                                    for k, v in old_metadata_charge_dict_wout_distortions_list[
-                                        "distortion_parameters"
-                                    ].items()
-                                    if k
-                                    not in ["bond_distortions", "distortion_increment"]
-                                }
-
-                                if (
-                                    new_metadata_charge_dict_wout_distortions_list
-                                    == old_metadata_charge_dict_wout_distortions_list
-                                ):
-                                    if (
-                                        new_metadata["defects"][defect]["charges"][
-                                            charge
-                                        ]["distortion_parameters"]
-                                        != old_metadata["defects"][defect]["charges"][
-                                            charge
-                                        ]["distortion_parameters"]
-                                    ):
-                                        # combine bond distortions lists:
-                                        old_bond_distortions = old_metadata["defects"][
-                                            defect
-                                        ]["charges"][charge]["distortion_parameters"][
-                                            "bond_distortions"
-                                        ]
-                                        bond_distortions = old_bond_distortions + [
-                                            distortion
-                                            for distortion in new_metadata["defects"][
-                                                defect
-                                            ]["charges"][charge][
-                                                "distortion_parameters"
-                                            ][
-                                                "bond_distortions"
-                                            ]
-                                            if distortion not in old_bond_distortions
-                                        ]
-                                        new_metadata["defects"][defect]["charges"][
-                                            charge
-                                        ]["distortion_parameters"] = {
-                                            "bond_distortions": bond_distortions,
-                                            **{
-                                                k: v
-                                                for k, v in new_metadata["defects"][
-                                                    defect
-                                                ]["charges"][charge][
-                                                    "distortion_parameters"
-                                                ].items()
-                                                if k
-                                                not in [
-                                                    "bond_distortions",
-                                                    "distortion_increment",
-                                                ]
-                                            },
-                                        }
-
-                                else:  # different number of neighbours distorted in new run
-                                    warnings.warn(
-                                        f"Previous and new metadata show different distortion parameters "
-                                        f"for {defect} in charge {'+' if charge > 0 else ''}{charge}. "
-                                        f"{filepath} will only show the new distortion parameters."
-                                    )
-                                    continue
-                            else:  # if charge state only in old metadata, add it to file
-                                new_metadata["defects"][defect]["charges"][
-                                    charge
-                                ] = old_metadata["defects"][defect]["charges"][charge]
-                    else:
-                        new_metadata["defects"][defect] = old_metadata["defects"][
-                            defect
-                        ]  # else add new entry
-        except KeyError:
-            os.rename(  # ensure previous file saved over, even if subset
-                filepath,
+            print(f"Combining old and new metadata in {filename}.")
+            old_metadata = loadfn(
                 os.path.join(
                     output_path, f"distortion_metadata_{current_datetime}.json"
-                ),
+                )
             )
+            # Combine old and new metadata dictionaries
+            for defect in old_metadata["defects"]:
+                if (
+                    defect in new_metadata["defects"]
+                ):  # if defect in both metadata files
+                    for charge in new_metadata["defects"][defect]["charges"]:
+                        if (
+                            charge in old_metadata["defects"][defect]["charges"]
+                        ):  # if charge state in both files,
+                            # then we update the mesh of distortions
+                            # (i.e. [-0.3, 0.3] + [-0.4, -0.2, 0.2, 0.4])
+                            if (
+                                new_metadata["defects"][defect]["charges"][charge]
+                                == old_metadata["defects"][defect]["charges"][charge]
+                            ):
+                                # make sure there are no inconsistencies (same number of
+                                # neighbours distorted and same distorted atoms)
+                                new_metadata["defects"][defect]["charges"][charge][
+                                    "distortion_parameters"
+                                ] = {
+                                    "bond_distortions": new_metadata["defects"][defect][
+                                        "charges"
+                                    ][charge]["distortion_parameters"][
+                                        "bond_distortions"
+                                    ]
+                                    + old_metadata["defects"][defect]["charges"][
+                                        charge
+                                    ]["distortion_parameters"]["bond_distortions"]
+                                }
+                            else:  # different number of neighbours distorted in new run
+                                warnings.warn(
+                                    f"Previous and new metadata show different number of distorted "
+                                    f"neighbours for {defect} in charge {'+' if charge > 0 else ''}"
+                                    f"{charge}. File {filepath} will only show the new number of "
+                                    f"distorted neighbours."
+                                )
+                                continue
+                        else:  # if charge state only in old metadata, add it to file
+                            new_metadata["defects"][defect]["charges"][
+                                charge
+                            ] = old_metadata["defects"][defect]["charges"][charge]
+                else:
+                    new_metadata["defects"][defect] = old_metadata["defects"][
+                        defect
+                    ]  # else add new entry
+        except KeyError:
             warnings.warn(
                 f"There was a problem when combining old and new metadata files! Will only write "
                 f"new metadata to {filepath}."
@@ -399,7 +258,7 @@ def _create_vasp_input(
         match_found = not any(
             any(
                 x in i
-                for i in os.listdir(os.path.join(output_path, dir))
+                for i in os.listdir(dir)
                 for x in ["Unperturbed", "Rattled", "Bond_Distortion"]
             )
             for dir in matching_dirs
@@ -917,9 +776,7 @@ def identify_defect(
 
     Returns: :obj:`Defect`
     """
-    # Note: Could replace much of the code in this function with the defect_from_structures function from
-    # doped if we wanted, but works fine as is.
-    # identify defect site, structural information, and create defect object:
+    # identify defect site, structural information, and create defect object
     try:
         defect_type, comp_diff = get_defect_type_and_composition_diff(
             bulk_structure, defect_structure
@@ -1400,7 +1257,6 @@ def _apply_rattle_bond_distortions(
     active_atoms: Optional[list] = None,
     distorted_element: Optional[str] = None,
     distorted_atoms: Optional[list] = None,
-    oxidation_states: Optional[dict] = None,
     verbose: bool = False,
     **mc_rattle_kwargs,
 ) -> dict:
@@ -1476,8 +1332,6 @@ def _apply_rattle_bond_distortions(
     defect_type = defect_object.defect_type.name.lower()
     bulk_supercell_site = _get_bulk_defect_site(defect_entry)
     defect_structure = defect_entry.sc_entry.structure
-    if oxidation_states is not None:
-        defect_structure.add_oxidation_state_by_element(oxidation_states)
 
     if defect_type == "vacancy":  # for vacancies, we need to use fractional coordinates
         # (no atom site in structure!)
@@ -1485,6 +1339,12 @@ def _apply_rattle_bond_distortions(
         defect_site_index = None
         if isinstance(distortion_factor, str) and distortion_factor.lower() == "dimer":
             bond_distorted_defect = distortions.apply_dimer_distortion(
+                structure=defect_structure,
+                site_index=defect_site_index,
+                frac_coords=frac_coords,
+            )
+        elif isinstance(distortion_factor, str) and distortion_factor.lower() == "trimer":
+            bond_distorted_defect = distortions.apply_trimer_distortion(
                 structure=defect_structure,
                 site_index=defect_site_index,
                 frac_coords=frac_coords,
@@ -1505,25 +1365,32 @@ def _apply_rattle_bond_distortions(
         defect_site_index = defect_object.defect_site_index + 1  # indexing in the
         # unit cell is conserved in the supercell
         frac_coords = None  # only for vacancies
-        if defect_site_index is None:
+        if defect_site_index is not None:
+            if isinstance(distortion_factor, str) and distortion_factor.lower() == "dimer":
+                bond_distorted_defect = distortions.apply_dimer_distortion(
+                    structure=defect_structure,
+                    site_index=defect_site_index,
+                    frac_coords=frac_coords,
+                )
+            elif isinstance(distortion_factor, str) and distortion_factor.lower() == "trimer":
+                bond_distorted_defect = distortions.apply_trimer_distortion(
+                    structure=defect_structure,
+                    site_index=defect_site_index,
+                    frac_coords=frac_coords,
+                )
+            else:
+                bond_distorted_defect = distortions.distort(
+                    structure=defect_structure,
+                    num_nearest_neighbours=num_nearest_neighbours,
+                    distortion_factor=distortion_factor,
+                    site_index=defect_site_index,
+                    distorted_element=distorted_element,
+                    distorted_atoms=distorted_atoms,  # site indices starting from 0
+                    verbose=verbose,
+                )
+        else:
             raise ValueError("Defect lacks defect_site_index!")
 
-        if isinstance(distortion_factor, str) and distortion_factor.lower() == "dimer":
-            bond_distorted_defect = distortions.apply_dimer_distortion(
-                structure=defect_structure,
-                site_index=defect_site_index,
-                frac_coords=frac_coords,
-            )
-        else:
-            bond_distorted_defect = distortions.distort(
-                structure=defect_structure,
-                num_nearest_neighbours=num_nearest_neighbours,
-                distortion_factor=distortion_factor,
-                site_index=defect_site_index,
-                distorted_element=distorted_element,
-                distorted_atoms=distorted_atoms,  # site indices starting from 0
-                verbose=verbose,
-            )
     # Apply rattle to the bond distorted structure
     if active_atoms is None:
         distorted_atom_indices = [
@@ -1576,7 +1443,6 @@ def apply_snb_distortions(
     distorted_element: Optional[str] = None,
     distorted_atoms: Optional[list] = None,
     verbose: bool = False,
-    oxidation_states: Optional[dict] = None,
     **mc_rattle_kwargs,
 ) -> dict:
     """
@@ -1682,7 +1548,6 @@ def apply_snb_distortions(
                     distorted_atoms=distorted_atoms,
                     verbose=verbose,
                     seed=seed,
-                    oxidation_states=oxidation_states,
                     **mc_rattle_kwargs,
                 )
                 distorted_defect_dict["distortions"][
@@ -1713,21 +1578,44 @@ def apply_snb_distortions(
                     distorted_atoms=distorted_atoms,
                     verbose=verbose,
                     seed=seed,
-                    oxidation_states=oxidation_states,
                     **mc_rattle_kwargs,
                 )
-                distorted_defect_dict["distortions"]["Dimer"] = bond_distorted_defect[
-                    "distorted_structure"
-                ]
-                distorted_defect_dict["distortion_parameters"].update(
-                    {
-                        "unique_site": bulk_supercell_site.frac_coords,
-                        "num_distorted_neighbours_in_dimer": 2,  # Dimer distortion only affects 2 atoms
-                        "distorted_atoms_in_dimer": bond_distorted_defect[
-                            "distorted_atoms"
-                        ],
-                    }
+                distorted_defect_dict["distortions"]["Dimer"] = (
+                    bond_distorted_defect["distorted_structure"]
                 )
+                distorted_defect_dict["distortion_parameters"].update({
+                    "unique_site": bulk_supercell_site.frac_coords,
+                    "num_distorted_neighbours_in_dimer": 2,  # Dimer distortion only affects 2 atoms
+                    "distorted_atoms_in_dimer": bond_distorted_defect["distorted_atoms"],
+                })
+                if defect_site_index:  # only add site index if not vacancy
+                    distorted_defect_dict["distortion_parameters"][
+                        "defect_site_index"
+                    ] = defect_site_index
+
+            elif isinstance(distortion, str) and distortion.lower() == "trimer":
+                # Apply trimer distortion, with rattling
+                bond_distorted_defect = _apply_rattle_bond_distortions(
+                    defect_entry=defect_entry,
+                    num_nearest_neighbours=2,
+                    distortion_factor=distortion,
+                    local_rattle=local_rattle,
+                    stdev=stdev,
+                    d_min=d_min,
+                    distorted_element=distorted_element,
+                    distorted_atoms=distorted_atoms,
+                    verbose=verbose,
+                    seed=seed,
+                    **mc_rattle_kwargs,
+                )
+                distorted_defect_dict["distortions"]["Trimer"] = (
+                    bond_distorted_defect["distorted_structure"]
+                )
+                distorted_defect_dict["distortion_parameters"].update({
+                    "unique_site": bulk_supercell_site.frac_coords,
+                    "num_distorted_neighbours_in_trimer": 3,  # Trimer distortion only affects 3 atoms
+                    "distorted_atoms_in_trimer": bond_distorted_defect["distorted_atoms"],
+                })
                 if defect_site_index:  # only add site index if not vacancy
                     distorted_defect_dict["distortion_parameters"][
                         "defect_site_index"
@@ -1787,15 +1675,27 @@ def apply_snb_distortions(
             distorted_defect_dict["distortions"]["Dimer"] = bond_distorted_defect[
                 "distorted_structure"
             ]
-            distorted_defect_dict["distortion_parameters"].update(
-                {
-                    "unique_site": bulk_supercell_site.frac_coords,
-                    "num_distorted_neighbours_in_dimer": 2,  # Dimer distortion only affects 2 atoms
-                    "distorted_atoms_in_dimer": bond_distorted_defect[
-                        "distorted_atoms"
-                    ],
-                }
+            distorted_defect_dict["distortion_parameters"].update({
+                "unique_site": bulk_supercell_site.frac_coords,
+                "num_distorted_neighbours_in_dimer": 2,  # Dimer distortion only affects 2 atoms
+                "distorted_atoms_in_dimer": bond_distorted_defect["distorted_atoms"],
+            })
+
+        if "Trimer" in bond_distortions:
+            # Apply trimer distortion, without rattling
+            bond_distorted_defect = distortions.apply_trimer_distortion(
+                structure=defect_structure,
+                site_index=defect_site_index,
+                frac_coords=frac_coords,
             )
+            distorted_defect_dict["distortions"]["Trimer"] = bond_distorted_defect[
+                "distorted_structure"
+            ]
+            distorted_defect_dict["distortion_parameters"].update({
+                "unique_site": bulk_supercell_site.frac_coords,
+                "num_distorted_neighbours_in_trimer": 3,  # Trimer distortion only affects 3 atoms
+                "distorted_atoms_in_trimer": bond_distorted_defect["distorted_atoms"],
+            })
     return distorted_defect_dict
 
 
@@ -2117,9 +2017,13 @@ class Distortions:
                 self.bond_distortions.append("Dimer")
                 bond_distortions.remove("Dimer")
 
-            self.bond_distortions.extend(
-                list(np.around(bond_distortions, 3))
-            )  # round to 3 decimal places
+            if "Trimer" in bond_distortions:
+                self.bond_distortions.append("Trimer")
+                bond_distortions.remove("Trimer")
+
+            self.bond_distortions.extend(list(
+                np.around(bond_distortions, 3)
+            ))  # round to 3 decimal places
         else:
             # If the user does not specify bond_distortions, use
             # distortion_increment:
@@ -2279,7 +2183,7 @@ class Distortions:
     ) -> None:
         """Print applied bond distortions and rattle standard deviation."""
         rounded_distortions = [
-            f"{round(i,3)+0}" if isinstance(i, float) else i for i in bond_distortions
+            f'{round(i,3)+0}' if isinstance(i, float) else i for i in bond_distortions
         ]
         print(
             "Applying ShakeNBreak...",
@@ -2386,12 +2290,24 @@ class Distortions:
         )
         pristine_site = _get_bulk_defect_site(defect_entry)
 
-        distorted_defect_dict = {
-            "defect_type": defect_type,
-            "defect_site": defect_site,
-            "defect_supercell_site": pristine_site,  # original site in pristine supercell
-            "charges": {int(charge): {} for charge in user_charges},
-        }  # General info about (neutral) defect
+        try:
+            distorted_defect_dict = {
+                "defect_type": defect_type,
+                "defect_site": defect_site,
+                "defect_supercell_site": pristine_site,  # original site in pristine supercell
+                "defect_multiplicity": defect.get_multiplicity(),
+                "charges": {int(charge): {} for charge in user_charges},
+            }  # General info about (neutral) defect
+        except NotImplementedError:  # interstitial
+            distorted_defect_dict = {
+                "defect_type": defect_type,
+                "defect_site": defect_site,
+                "defect_supercell_site": pristine_site,
+                "defect_multiplicity": _get_voronoi_multiplicity(
+                    defect.site, defect.structure
+                ),
+                "charges": {int(charge): {} for charge in user_charges},
+            }  # General info about (neutral) defect
         if defect_type == "substitution":  # substitutions and antisites
             sub_site_in_bulk = defect.defect_site
             distorted_defect_dict[
@@ -2402,62 +2318,22 @@ class Distortions:
 
     def write_distortion_metadata(
         self,
-        output_path: str = ".",
-        defect: Optional[str] = None,
-        charge: Optional[int] = None,
+        output_path=".",
     ) -> None:
         """
-        Write distortion metadata to file.
-
-        If the file already exists then the previous metadata will be
-        renamed to ``distortion_metadata_<datetime>.json`` (if it differs
-        from the current metadata), and also combined with the current
-        metadata if compatible (i.e. if they are using similar distortion
-        parameters and only differ in the set of defects / charge states /
-        distortions used), before writing this combined metadata to file.
-
-        If defect and/or charge are specified, then only distortion metadata
-        for that defect and/or charge state will be written.
+        Write metadata to file. If the file already exists, it will be
+        renamed to distortion_metadata_<datetime>.json and updated with
+        new metadata.
 
         Args:
             output_path (:obj:`str`):
                 Path to directory where the metadata file will be written.
-            defect (:obj:`str`):
-                Name of the defect for which to write the metadata.
-                If None, the metadata for all defects will be written.
-                (Default: None)
-            charge (:obj:`int`):
-                Charge state of the defect for which to write the metadata.
-                If None, the metadata for all charge states of the defect
-                will be written.
-                (Default: None)
 
         Returns:
             None
         """
-        if defect is not None:
-            distortion_metadata = {
-                "distortion_parameters": {
-                    **self.distortion_metadata["distortion_parameters"]
-                },
-                "defects": {defect: self.distortion_metadata["defects"][defect]},
-            }
-        else:
-            distortion_metadata = self.distortion_metadata
-
-        if charge is not None:
-            distortion_metadata = copy.deepcopy(
-                distortion_metadata
-            )  # don't overwrite original
-            for defect_name in list(distortion_metadata["defects"].keys()):
-                distortion_metadata["defects"][defect_name]["charges"] = {
-                    charge: distortion_metadata["defects"][defect_name]["charges"][
-                        charge
-                    ]
-                }
-
         _write_distortion_metadata(
-            new_metadata=distortion_metadata,
+            new_metadata=self.distortion_metadata,
             filename="distortion_metadata.json",
             output_path=output_path,
         )
@@ -2554,7 +2430,6 @@ class Distortions:
                     distorted_element=distorted_element,
                     distorted_atoms=self.distorted_atoms,
                     verbose=verbose,
-                    oxidation_states=self.oxidation_states,
                     **self._mc_rattle_kwargs,
                 )
 
@@ -2654,8 +2529,6 @@ class Distortions:
                 tuple of dictionaries with new defects_dict (containing the
                 distorted structures) and defect distortion parameters.
         """
-        # Note: If input file generation was becoming too slow, could try to profile deeper / possibly
-        # implement multiprocessing.
         distorted_defects_dict, self.distortion_metadata = self.apply_distortions(
             verbose=verbose,
         )
@@ -2698,22 +2571,14 @@ class Distortions:
                         "Charge State": charge_state,
                     }
 
-                defect_species = (
-                    f"{defect_name}_{'+' if charge_state > 0 else ''}{charge_state}"
-                )
                 _create_vasp_input(
-                    defect_name=defect_species,
+                    defect_name=f"{defect_name}_{'+' if charge_state > 0 else ''}{charge_state}",
                     distorted_defect_dict=charged_defect_dict,
                     user_incar_settings=user_incar_settings,
                     user_potcar_functional=user_potcar_functional,
                     user_potcar_settings=user_potcar_settings,
                     output_path=output_path,
                     **kwargs,
-                )
-                self.write_distortion_metadata(
-                    output_path=f"{output_path}/{defect_species}",
-                    defect=defect_name,
-                    charge=charge_state,
                 )
 
         self.write_distortion_metadata(output_path=output_path)
