@@ -10,13 +10,13 @@ from subprocess import call
 
 import click
 from doped.generation import get_defect_name_from_entry
-from doped.utils.parsing import get_outcar
-from doped.utils.plotting import format_defect_name
+from doped.plotting import _format_defect_name
 
 # Monty and pymatgen
 from monty.serialization import dumpfn, loadfn
 from pymatgen.core.structure import Structure
 from pymatgen.io.vasp.inputs import Incar
+from pymatgen.io.vasp.outputs import Outcar
 
 # ShakeNBreak
 from shakenbreak import analysis, energy_lowering_distortions, input, io, plotting
@@ -30,7 +30,7 @@ def _parse_defect_dirs(path) -> list:
         if os.path.isdir(f"{path}/{dir}")
         and any(
             fnmatch.filter(os.listdir(f"{path}/{dir}"), f"{dist}*")
-            for dist in ["Rattled", "Unperturbed", "Bond_Distortion", "Dimer"]
+            for dist in ["Rattled", "Unperturbed", "Bond_Distortion"]
         )  # only parse defect directories that contain distortion folders
     ]
 
@@ -298,7 +298,7 @@ def generate(
     ]
 
     if name is None:
-        name = get_defect_name_from_entry(defect_entries[0], relaxed=False)
+        name = get_defect_name_from_entry(defect_entries[0])
 
     # if user_charges not set for all defects, print info about how charge states will be
     # determined
@@ -551,12 +551,12 @@ def generate_all(
             # if user didn't specify defect names in config file,
             # check if defect filename is recognised
             try:
-                defect_name = format_defect_name(
+                defect_name = _format_defect_name(
                     defect, include_site_info_in_name=False
                 )
             except Exception:
                 with contextlib.suppress(Exception):
-                    defect_name = format_defect_name(
+                    defect_name = _format_defect_name(
                         f"{defect}_0", include_site_info_in_name=False
                     )
             if defect_name:
@@ -813,7 +813,7 @@ def run(submit_command, job_script, job_name_option, all, verbose):
         job_name_option = "-N"
 
     call(
-        f"{os.path.dirname(__file__)}/SnB_run.sh {optional_flags} {submit_command} {job_script} "
+        f"{os.path.dirname(__file__)}/scripts/SnB_run.sh {optional_flags} {submit_command} {job_script} "
         f"{job_name_option}",
         shell=True,
     )
@@ -1351,8 +1351,7 @@ def regenerate(path, code, filename, min_energy, metastable, verbose):
 @click.option(
     "--directory",
     "-d",
-    help="Folder name where the ground state structure will be written to. If using with `doped`, then "
-    "typically recommended to set to `vasp_nkred_std` or `vasp_std`.",
+    help="Folder name where the ground state structure will be written to.",
     type=str,
     default="Groundstate",
     show_default=True,
@@ -1376,7 +1375,8 @@ def regenerate(path, code, filename, min_energy, metastable, verbose):
 @click.option(
     "--path",
     "-p",
-    help="Path to the top-level directory containing the defect folders. Defaults to current directory.",
+    help="Path to the top-level directory containing the defect folders."
+    " Defaults to current directory.",
     type=click.Path(exists=True, dir_okay=True),
     default=".",
 )
@@ -1411,17 +1411,17 @@ def groundstate(
         if os.path.isdir(dir)
         and any(
             substring in dir
-            for substring in ["Bond_Distortion", "Rattled", "Unperturbed", "Dimer"]
+            for substring in ["Bond_Distortion", "Rattled", "Unperturbed"]
         )
     ):  # distortion subfolders in cwd
         # check if defect folders also in cwd
         for dir in [dir for dir in os.listdir() if os.path.isdir(dir)]:
             defect_name = None
             try:
-                defect_name = format_defect_name(dir, include_site_info_in_name=False)
+                defect_name = _format_defect_name(dir, include_site_info_in_name=False)
             except Exception:
                 with contextlib.suppress(Exception):
-                    defect_name = format_defect_name(
+                    defect_name = _format_defect_name(
                         f"{dir}_0", include_site_info_in_name=False
                     )
             if (
@@ -1472,7 +1472,7 @@ def groundstate(
 @click.option(
     "--outcar",
     "-o",
-    help="Path to OUTCAR(.gz) file",
+    help="Path to OUTCAR file",
     default="OUTCAR",
     type=click.Path(exists=True, dir_okay=False),
 )
@@ -1500,7 +1500,7 @@ def mag(outcar, threshold, verbose):
     Returns a shell exit status of 0 if magnetisation is below the threshold and 1 if above.
     """
     try:
-        outcar_obj = get_outcar(outcar)
+        outcar_obj = Outcar(outcar)
         abs_mag_values = [abs(m["tot"]) for m in outcar_obj.magnetization]
 
         if (
